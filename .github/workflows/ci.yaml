@@ -1,0 +1,72 @@
+name: CI
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  NUGET_OUTPUT: ./src/nuget-output
+  NUGET_SOURCE: https://nuget.pkg.github.com/Arne-Labs/index.json
+
+on:
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  build:
+    name: Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v1
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4.0.1
+      with:
+        dotnet-version: 8.0.x
+        source-url: ${{ env.NUGET_SOURCE }}
+      env:
+        NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install dotnet affected tool
+      run: dotnet tool install -g dotnet-affected
+
+    - name: Create build plan for affected projects
+      id: affected
+      run: |
+        set +e # Disable exit on error
+
+        dotnet affected --from origin/${{ github.head_ref }} --to origin/${{ github.base_ref }} -e src/TestConsole
+        if [[ $? -ne 0  &&  $? -ne 166 ]]; then # 166 is the exit code for no affected projects
+          echo "dotnet affected failed with status code ${?}!"
+          exit $?
+        fi
+
+        if [ -f affected.proj ]; then
+          echo "affected.proj is created..."
+          echo "affected=true" >> $GITHUB_OUTPUT
+        else
+          echo "affected.proj is not created!"
+          echo "affected=false" >> $GITHUB_OUTPUT
+        fi
+
+        exit 0
+
+    - name: Install dependencies
+      if: success() && steps.affected.outputs.affected == 'true'
+      run: dotnet restore affected.proj
+
+    - name: .NET Build
+      if: success() && steps.affected.outputs.affected == 'true'
+      run: dotnet build affected.proj -c Release --no-restore /p:ContinuousIntegrationBuild=true
+
+    - name: Run Tests
+      if: success() && steps.affected.outputs.affected == 'true'
+      run: dotnet test affected.proj -c Release --logger GitHubActions /p:ContinuousIntegrationBuild=true
+
+    - name: Pack builds to nuget packages
+      if: success() && steps.affected.outputs.affected == 'true'
+      run: dotnet pack affected.proj --output ${{ env.NUGET_OUTPUT }} --no-build --no-restore -c Release /p:ContinuousIntegrationBuild=true
