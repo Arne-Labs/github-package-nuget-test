@@ -1,6 +1,10 @@
 ﻿namespace Arne.Test.ExamplePackage;
 
-public static class HelloWorld
+public class HelloWorld
 {
-    public static void Print() => Console.WriteLine("Hello World!");
+    private readonly string _firstName;
+
+    public HelloWorld(string firstname) => _firstName = firstname;
+
+    public void Print() => Console.WriteLine($"Hello {_firstName}!");
 }
